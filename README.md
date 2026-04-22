@@ -178,6 +178,33 @@ python -m pytest tests/ -q
 
 ---
 
+## About This Fork
+
+This is maintained by [pinch-claw](https://github.com/pinch-claw) as a downstream fork of [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).
+
+### Branch Strategy
+
+| Branch | Purpose |
+|--------|---------|
+| `upstream` | Tracks `NousResearch/hermes-agent:main` exactly. Updated by ref. |
+| `main` | Stacks our changes on top of upstream. Each commit is an independent feature, rebasable. |
+
+### Keeping in Sync
+
+```bash
+# Update the upstream tracking branch
+git fetch upstream
+git branch -f upstream upstream/main
+
+# Rebase our changes onto the latest upstream
+git checkout main
+git rebase upstream
+```
+
+Each feature we add is a single commit on `main` so it can be rebased cleanly onto new upstream releases.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
