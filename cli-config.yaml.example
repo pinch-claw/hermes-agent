@@ -95,6 +95,13 @@ model:
 #     models:
 #       gpt-5.4:
 #         stale_timeout_seconds: 1800  # Longer non-stream stale timeout for slow large-context turns
+#   # Providers that don't expose a /models endpoint (e.g. Titan, MiniMax)
+#   # can set has_models_endpoint: false to skip the probe and validate
+#   # against the static curated catalog instead.
+#   titan:
+#     has_models_endpoint: false
+#     base_url: https://your-titan-endpoint.example.com/v1
+#     api_key: ${TITAN_API_KEY}
 
 # =============================================================================
 # OpenRouter Provider Routing (only applies when using OpenRouter)

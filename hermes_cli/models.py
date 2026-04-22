@@ -1505,6 +1505,29 @@ def provider_label(provider: Optional[str]) -> str:
     return _PROVIDER_LABELS.get(normalized, original or "OpenRouter")
 
 
+def provider_has_models_endpoint(provider: Optional[str]) -> bool:
+    """Return True if the provider exposes a /models endpoint.
+
+    Reads the ``providers.<provider>.has_models_endpoint`` config key.
+    Defaults to True (probe the endpoint) unless explicitly set to False.
+
+    When False, Hermes skips the /models probe and validates against the
+    static curated catalog instead — same pattern already used for MiniMax.
+    """
+    normalized = normalize_provider(provider)
+    try:
+        from hermes_cli.config import load_config
+        cfg = load_config()
+    except Exception:
+        return True
+    providers = cfg.get("providers") or {}
+    entry = providers.get(normalized) or {}
+    # Only False disables it; missing/None/True all default to True
+    if entry.get("has_models_endpoint") is False:
+        return False
+    return True
+
+
 # Models that support OpenAI Priority Processing (service_tier="priority").
 # See https://openai.com/api-priority-processing/ for the canonical list.
 # Only the bare model slug is stored (no vendor prefix).
@@ -2479,6 +2502,63 @@ def validate_requested_model(
                     "\n  The model may still work if it exists on the server."
                 ),
             }
+
+    # Providers that explicitly opt-out of /models probing (e.g. Titan,
+    # MiniMax, or any custom provider that doesn't expose the endpoint).
+    # When False we skip the HTTP probe and validate against the static
+    # catalog or accept with a warning — same pattern used for MiniMax.
+    if not provider_has_models_endpoint(normalized):
+        provider_label_text = _PROVIDER_LABELS.get(normalized, normalized)
+        try:
+            catalog_models = provider_model_ids(normalized)
+        except Exception:
+            catalog_models = []
+        if catalog_models:
+            catalog_lower = {m.lower(): m for m in catalog_models}
+            if requested_for_lookup.lower() in catalog_lower:
+                return {
+                    "accepted": True,
+                    "persist": True,
+                    "recognized": True,
+                    "message": None,
+                }
+            catalog_lower_list = list(catalog_lower.keys())
+            auto = get_close_matches(requested_for_lookup.lower(), catalog_lower_list, n=1, cutoff=0.9)
+            if auto:
+                corrected = catalog_lower[auto[0]]
+                return {
+                    "accepted": True,
+                    "persist": True,
+                    "recognized": True,
+                    "corrected_model": corrected,
+                    "message": f"Auto-corrected `{requested}` → `{corrected}`",
+                }
+            suggestions = get_close_matches(requested_for_lookup.lower(), catalog_lower_list, n=3, cutoff=0.5)
+            suggestion_text = ""
+            if suggestions:
+                suggestion_text = "\n  Similar models: " + ", ".join(f"`{catalog_lower[s]}`" for s in suggestions)
+            return {
+                "accepted": True,
+                "persist": True,
+                "recognized": False,
+                "message": (
+                    f"Note: `{requested}` was not found in the {provider_label_text} catalog."
+                    f"{suggestion_text}"
+                    f"\n  {provider_label_text} does not expose a /models endpoint, so Hermes cannot verify the model name."
+                    "\n  The model may still work if it exists on the provider."
+                ),
+            }
+        # No catalog either — accept with a warning.
+        return {
+            "accepted": True,
+            "persist": True,
+            "recognized": False,
+            "message": (
+                f"Note: `{provider_label_text}` does not expose a /models endpoint, "
+                f"so Hermes cannot verify `{requested}`."
+                "\n  The model may still work if it exists on the provider."
+            ),
+        }
 
     # Probe the live API to check if the model actually exists
     api_models = fetch_api_models(api_key, base_url)

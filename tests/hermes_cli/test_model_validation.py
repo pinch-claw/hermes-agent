@@ -650,3 +650,75 @@ class TestProbeApiModelsUserAgent:
         assert ua and ua.startswith("hermes-cli/")
         # No Authorization was set, but UA must still be present.
         assert req.get_header("Authorization") is None
+
+
+class TestProviderHasModelsEndpoint:
+    def test_defaults_to_true_when_no_config(self):
+        from hermes_cli.models import provider_has_models_endpoint
+        with patch("hermes_cli.config.load_config", return_value={}):
+            assert provider_has_models_endpoint("titan") is True
+
+    def test_defaults_to_true_when_providers_missing(self):
+        from hermes_cli.models import provider_has_models_endpoint
+        with patch("hermes_cli.config.load_config", return_value={"providers": {}}):
+            assert provider_has_models_endpoint("titan") is True
+
+    def test_explicit_false(self):
+        from hermes_cli.models import provider_has_models_endpoint
+        cfg = {"providers": {"titan": {"has_models_endpoint": False}}}
+        with patch("hermes_cli.config.load_config", return_value=cfg):
+            assert provider_has_models_endpoint("titan") is False
+
+    def test_explicit_true_is_true(self):
+        from hermes_cli.models import provider_has_models_endpoint
+        cfg = {"providers": {"titan": {"has_models_endpoint": True}}}
+        with patch("hermes_cli.config.load_config", return_value=cfg):
+            assert provider_has_models_endpoint("titan") is True
+
+    def test_provider_alias_normalized(self):
+        from hermes_cli.models import provider_has_models_endpoint
+        cfg = {"providers": {"zai": {"has_models_endpoint": False}}}
+        with patch("hermes_cli.config.load_config", return_value=cfg):
+            assert provider_has_models_endpoint("glm") is False
+
+
+class TestValidateNoModelsEndpoint:
+    def test_model_in_catalog_accepted(self):
+        with patch("hermes_cli.models.provider_model_ids", return_value=["glm-5"]), \
+             patch("hermes_cli.models.provider_has_models_endpoint", return_value=False):
+            result = validate_requested_model("glm-5", "zai")
+        assert result["accepted"] is True
+        assert result["recognized"] is True
+
+    def test_model_not_in_catalog_accepted_with_warning(self):
+        with patch("hermes_cli.models.provider_model_ids", return_value=["glm-5"]), \
+             patch("hermes_cli.models.provider_has_models_endpoint", return_value=False):
+            result = validate_requested_model("glm-99", "zai")
+        assert result["accepted"] is True
+        assert result["persist"] is True
+        assert result["recognized"] is False
+        assert "does not expose a /models endpoint" in result["message"]
+
+    def test_no_catalog_accepted_with_warning(self):
+        with patch("hermes_cli.models.provider_model_ids", return_value=[]), \
+             patch("hermes_cli.models.provider_has_models_endpoint", return_value=False):
+            result = validate_requested_model("my-private-model", "titan")
+        assert result["accepted"] is True
+        assert result["persist"] is True
+        assert "does not expose a /models endpoint" in result["message"]
+
+    def test_auto_corrected_when_typo_in_catalog(self):
+        with patch("hermes_cli.models.provider_model_ids", return_value=["foo-bar-baz"]), \
+             patch("hermes_cli.models.provider_has_models_endpoint", return_value=False):
+            result = validate_requested_model("foo-bar-bax", "zai")
+        assert result["accepted"] is True
+        assert result["corrected_model"] == "foo-bar-baz"
+        assert "Auto-corrected" in result["message"]
+
+    def test_api_never_probed_when_disabled(self):
+        from hermes_cli.models import fetch_api_models
+        with patch("hermes_cli.models.provider_model_ids", return_value=["glm-5"]), \
+             patch("hermes_cli.models.provider_has_models_endpoint", return_value=False), \
+             patch("hermes_cli.models.fetch_api_models") as mock_fetch:
+            validate_requested_model("glm-5", "zai")
+        mock_fetch.assert_not_called()

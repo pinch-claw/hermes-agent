@@ -1971,11 +1971,13 @@ def _normalize_custom_provider_entry(
         "defaultModel": "default_model",
         "contextLength": "context_length",
         "rateLimitDelay": "rate_limit_delay",
+        "hasModelsEndpoint": "has_models_endpoint",
     }
     _KNOWN_KEYS = {
         "name", "api", "url", "base_url", "api_key", "key_env",
         "api_mode", "transport", "model", "default_model", "models",
         "context_length", "rate_limit_delay",
+        "has_models_endpoint",
     }
     for camel, snake in _CAMEL_ALIASES.items():
         if camel in entry and snake not in entry:
@@ -2057,6 +2059,11 @@ def _normalize_custom_provider_entry(
     rate_limit_delay = entry.get("rate_limit_delay")
     if isinstance(rate_limit_delay, (int, float)) and rate_limit_delay >= 0:
         normalized["rate_limit_delay"] = rate_limit_delay
+
+    has_models_endpoint = entry.get("has_models_endpoint")
+    # False explicitly = skip /models probing; truthy or missing = default True
+    if has_models_endpoint is False:
+        normalized["has_models_endpoint"] = False
 
     return normalized
 
@@ -2154,6 +2161,7 @@ _KNOWN_ROOT_KEYS = {
 _VALID_CUSTOM_PROVIDER_FIELDS = {
     "name", "base_url", "api_key", "api_mode", "model", "models",
     "context_length", "rate_limit_delay",
+    "has_models_endpoint",
 }
 
 # Fields that look like they should be inside custom_providers, not at root
