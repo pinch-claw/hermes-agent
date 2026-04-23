@@ -841,8 +841,15 @@ def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
         logger.debug("Could not import PROVIDER_REGISTRY for API-key fallback")
         return None, None
 
+    try:
+        from hermes_cli.providers import is_provider_disabled as _is_disabled
+    except Exception:
+        _is_disabled = lambda _slug: False
+
     for provider_id, pconfig in PROVIDER_REGISTRY.items():
         if pconfig.auth_type != "api_key":
+            continue
+        if _is_disabled(provider_id):
             continue
         if provider_id == "anthropic":
             # Only try anthropic when the user has explicitly configured it.
@@ -1298,14 +1305,23 @@ def _get_provider_chain() -> List[tuple]:
 
     Built at call time (not module level) so that test patches
     on the ``_try_*`` functions are picked up correctly.
+    Entries whose slug is in ``providers_disabled`` are skipped so
+    auxiliary auto-detection never routes through an implicitly-authed
+    provider the user opted out of.
     """
-    return [
+    chain = [
         ("openrouter", _try_openrouter),
         ("nous", _try_nous),
         ("local/custom", _try_custom_endpoint),
         ("openai-codex", _try_codex),
         ("api-key", _resolve_api_key_provider),
     ]
+    try:
+        from hermes_cli.providers import is_provider_disabled
+        chain = [(slug, fn) for slug, fn in chain if not is_provider_disabled(slug)]
+    except Exception:
+        pass
+    return chain
 
 
 def _is_payment_error(exc: Exception) -> bool:

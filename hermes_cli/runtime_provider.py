@@ -863,6 +863,21 @@ def resolve_runtime_provider(
     """
     requested_provider = resolve_requested_provider(requested)
 
+    # Refuse disabled providers up-front so explicit --provider requests
+    # also fail fast instead of silently falling through to auto-detect.
+    try:
+        from hermes_cli.providers import is_provider_disabled
+        if requested_provider and is_provider_disabled(requested_provider):
+            raise AuthError(
+                f"Provider '{requested_provider}' is disabled in config "
+                f"(providers_disabled). Remove it from the blocklist or "
+                f"select a different provider."
+            )
+    except AuthError:
+        raise
+    except Exception:
+        pass
+
     # Azure Anthropic short-circuit: when explicitly targeting an Azure endpoint
     # with provider="anthropic", bypass _resolve_named_custom_runtime (which would
     # return provider="custom" with chat_completions api_mode and no valid key).

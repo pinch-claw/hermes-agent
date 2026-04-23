@@ -1461,6 +1461,15 @@ def list_authenticated_providers(
             seen_slugs.add(slug.lower())
             _section4_emitted_slugs.add(slug.lower())
 
+    # Filter out providers the user explicitly disabled. Keeps the picker
+    # and /provider list clean of implicit auth (gh token, Claude OAuth)
+    # that the user doesn't want hermes to consult.
+    try:
+        from hermes_cli.providers import is_provider_disabled
+        results = [r for r in results if not is_provider_disabled(r.get("slug", ""))]
+    except Exception:
+        pass
+
     # Sort: current provider first, then by model count descending
     results.sort(key=lambda r: (not r["is_current"], -r["total_models"]))
 

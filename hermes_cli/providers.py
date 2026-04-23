@@ -441,6 +441,31 @@ def is_aggregator(provider: str) -> bool:
     return pdef.is_aggregator if pdef else False
 
 
+def is_provider_disabled(provider: str, *, cfg: dict | None = None) -> bool:
+    """Return True when the provider is listed in config's ``providers_disabled``.
+
+    Disabled providers are invisible to enumeration (picker, /provider) and
+    refuse to resolve at runtime. External credential sources (gh auth,
+    Claude Code OAuth) are left alone — hermes just stops consulting them.
+    Lowercase-normalised, tolerant of non-string entries.
+    """
+    if not provider or not isinstance(provider, str):
+        return False
+    try:
+        if cfg is None:
+            from hermes_cli.config import load_config
+            cfg = load_config()
+    except Exception:
+        return False
+    raw = cfg.get("providers_disabled") or []
+    if not isinstance(raw, list):
+        return False
+    slug = provider.strip().lower()
+    return slug in {
+        d.strip().lower() for d in raw if isinstance(d, str) and d.strip()
+    }
+
+
 def determine_api_mode(provider: str, base_url: str = "") -> str:
     """Determine the API mode (wire protocol) for a provider/endpoint.
 
