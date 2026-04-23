@@ -7167,6 +7167,32 @@ class GatewayRunner:
         except Exception:
             pass
 
+        # Fall back to the nested per-model context_length under
+        # providers.<name>.models.<model> (new schema) or
+        # custom_providers[].models.<model> (legacy schema) — mirrors the
+        # resolution AIAgent.__init__ uses so the displayed value matches
+        # what the ContextCompressor actually budgets with.
+        if config_context_length is None and base_url and data:
+            try:
+                from hermes_cli.config import get_compatible_custom_providers
+                _normalized_base = base_url.rstrip("/")
+                for _cp_entry in get_compatible_custom_providers(data):
+                    _cp_url = (_cp_entry.get("base_url") or "").rstrip("/")
+                    if _cp_url and _cp_url == _normalized_base:
+                        _cp_models = _cp_entry.get("models", {})
+                        if isinstance(_cp_models, dict):
+                            _cp_model_cfg = _cp_models.get(model, {})
+                            if isinstance(_cp_model_cfg, dict):
+                                _cp_ctx = _cp_model_cfg.get("context_length")
+                                if _cp_ctx is not None:
+                                    try:
+                                        config_context_length = int(_cp_ctx)
+                                    except (TypeError, ValueError):
+                                        pass
+                        break
+            except Exception:
+                pass
+
         context_length = get_model_context_length(
             model,
             base_url=base_url or "",
