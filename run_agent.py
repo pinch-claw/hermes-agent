@@ -1421,7 +1421,7 @@ class AIAgent:
                     client_kwargs = {"api_key": api_key, "base_url": base_url}
                 if _provider_timeout is not None:
                     client_kwargs["timeout"] = _provider_timeout
-                if self.provider == "copilot-acp":
+                if self.provider in {"copilot-acp", "claude-cli"}:
                     client_kwargs["command"] = self.acp_command
                     client_kwargs["args"] = self.acp_args
                 effective_base = base_url
@@ -2625,9 +2625,10 @@ class AIAgent:
                 get_model_context_length,
             )
 
+            main_runtime = self._current_main_runtime()
             client, aux_model = get_text_auxiliary_client(
                 "compression",
-                main_runtime=self._current_main_runtime(),
+                main_runtime=main_runtime,
             )
             # Best-effort aux provider label for the warning message. The
             # configured provider may be "auto", in which case we fall back
@@ -2653,13 +2654,16 @@ class AIAgent:
 
             aux_base_url = str(getattr(client, "base_url", ""))
             aux_api_key = str(getattr(client, "api_key", ""))
+            aux_provider, _, _, _, _ = _resolve_task_provider_model("compression")
+            if aux_provider == "auto":
+                aux_provider = str((main_runtime or {}).get("provider") or "").strip() or aux_provider
 
             aux_context = get_model_context_length(
                 aux_model,
                 base_url=aux_base_url,
                 api_key=aux_api_key,
                 config_context_length=getattr(self, "_aux_compression_context_length_config", None),
-                provider=getattr(self, "provider", ""),
+                provider=aux_provider,
             )
 
             # Hard floor: the auxiliary compression model must have at least
@@ -5548,6 +5552,17 @@ class AIAgent:
                 self._client_log_context(),
             )
             return client
+        if self.provider == "claude-cli" or str(client_kwargs.get("base_url", "")).startswith("claude-cli://"):
+            from agent.claude_cli_client import ClaudeCLIClient
+
+            client = ClaudeCLIClient(**client_kwargs)
+            logger.info(
+                "Claude CLI client created (%s, shared=%s) %s",
+                reason,
+                shared,
+                self._client_log_context(),
+            )
+            return client
         if self.provider == "google-gemini-cli" or str(client_kwargs.get("base_url", "")).startswith("cloudcode-pa://"):
             from agent.gemini_cloudcode_adapter import GeminiCloudCodeClient
 
@@ -5841,6 +5856,11 @@ class AIAgent:
         primary_client = self._ensure_primary_openai_client(reason=reason)
         if isinstance(primary_client, Mock):
             return primary_client
+        if self.provider == "claude-cli" or str(getattr(self, "base_url", "")).startswith("claude-cli://"):
+            # Claude CLI is a stateful local subprocess transport, not a pooled
+            # HTTP client. Reuse the shared primary client so Claude session ids
+            # survive across tool turns and cron-style multi-step runs.
+            return primary_client
         with self._openai_client_lock():
             request_kwargs = dict(self._client_kwargs)
         # Per-request OpenAI-wire clients (used by both the non-streaming
@@ -5862,6 +5882,8 @@ class AIAgent:
         return self._create_openai_client(request_kwargs, reason=reason, shared=False)
 
     def _close_request_openai_client(self, client: Any, *, reason: str) -> None:
+        if client is getattr(self, "client", None):
+            return
         self._close_openai_client(client, reason=reason, shared=False)
 
     def _run_codex_stream(self, api_kwargs: dict, client: Any = None, on_first_delta: callable = None):
